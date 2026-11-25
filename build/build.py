@@ -2,6 +2,7 @@
 """Static site generator for the REF Builders prototype."""
 import os, html, json, re
 from content import *
+from areamap import area_map
 try:
     from theme import THEME
 except ImportError:
@@ -12,6 +13,11 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "site")
 SVC = {s["slug"]: s for s in SERVICES}
 CTY = {c["slug"]: c for c in CITIES}
 E = html.escape
+
+def ver(rel):
+    """Short content hash so browsers load the new file after every change."""
+    import hashlib
+    with open(os.path.join(OUT, rel), "rb") as f: return hashlib.md5(f.read()).hexdigest()[:8]
 
 ALT = {
  "drone-front":"Aerial front view of a new two-story stucco home with a gabled roof and landscaped yard",
@@ -69,6 +75,22 @@ def link(label, href):
 
 def eyebrow(t): return f'<span class="eyebrow rv">{E(t)}</span>'
 
+def marquee():
+    """Scrolling strip of every service, each with a pulsing red dot. The list is
+    duplicated so the loop is seamless; the copy is hidden from screen readers."""
+    links="".join(f'<li><a href="{x["slug"]}.html">{E(x["name"])}</a></li>' for x in SERVICES)
+    copy="".join(f'<li>{E(x["name"])}</li>' for x in SERVICES)
+    return f'''<section class="mq" aria-label="Our services"><div class="mq__track"><ul class="mq__list">{links}</ul><ul class="mq__list" aria-hidden="true">{copy}</ul></div></section>'''
+
+def house(cls="", stretch=False):
+    """The logo's house outline as a line drawing: open left wall, roof rising to the peak,
+    right wall and base, drawn with two parallel lines like the logo. Draws itself in on reveal."""
+    paths=["M6 168 V448 H352","M190 126 L417 6 L594 170 V448 H556",
+           "M20 168 V434 H352","M200 140 L417 22 L580 176 V434 H556"]
+    pp="".join(f'<path d="{d}" pathLength="1" style="--k:{i}"/>' for i,d in enumerate(paths))
+    par = ' preserveAspectRatio="none"' if stretch else ""
+    return f'<svg class="house roof-draw {cls}" viewBox="0 0 600 456"{par} aria-hidden="true" focusable="false">{pp}</svg>'
+
 # ---------------------------------------------------------------- NAV
 NAV = [
  ("Home","index.html",[]),
@@ -79,7 +101,7 @@ NAV = [
  ("Contact","contact.html",[]),
 ]
 
-def header(active, inner=True):
+def header(active, inner=False):
     lis=[]
     for i,(name,href,sub) in enumerate(NAV):
         cur = ' aria-current="page"' if active==name else ""
@@ -125,7 +147,7 @@ def head(title, desc, canon):
 <link rel="icon" type="image/png" href="assets/img/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/site.css">{chr(10)+"<link rel=%sstylesheet%s href=%sassets/css/dark.css%s>" % ((chr(34),)*4) if DARK else ""}
+<link rel="stylesheet" href="assets/css/site.css?v={ver("assets/css/site.css")}">{chr(10)+"<link rel=%sstylesheet%s href=%sassets/css/dark.css%s>" % ((chr(34),)*4) if DARK else ""}
 <script type="application/ld+json">{json.dumps({"@context":"https://schema.org","@type":"GeneralContractor","name":"REF Builders","telephone":"+1-831-566-9040","email":BIZ["email"],"url":"https://www.refbuilders.com/","address":{"@type":"PostalAddress","streetAddress":"710 E McGlincy Ln, Ste 109","addressLocality":"Campbell","addressRegion":"CA","postalCode":"95008","addressCountry":"US"},"areaServed":["Santa Clara County","San Mateo County","Alameda County","San Francisco"],"sameAs":[BIZ["instagram"],BIZ["yelp"]]})}</script>
 </head>
 <body>'''
@@ -150,19 +172,28 @@ def form(fid, dark=True, btn_label="Send Inquiry"):
 </form>'''
 
 def band(h2="Let's Talk About Your Project", sub="Tell us what you are planning. We will review the details and reach out to set up a time to talk."):
+    contacts=[
+        ("phone","Call us",BIZ["phone"],f'tel:{BIZ["tel"]}'),
+        ("mail","Email",BIZ["email"],f'mailto:{BIZ["email"]}'),
+        ("pin","Visit the office",f'{BIZ["addr1"]}, {BIZ["addr2"]}',"https://www.google.com/maps/search/?api=1&query="+BIZ["addr1"].replace(" ","+")+",+"+BIZ["addr2"].replace(" ","+")),
+    ]
+    cards="".join(f'<a class="fcon" href="{h}"{" target=%s_blank%s rel=%snoopener%s" % ((chr(34),)*4) if h.startswith("http") else ""}><span class="fcon__i">{I[i]}</span><span class="fcon__t"><small>{E(l)}</small><b>{E(v)}</b></span><span class="fcon__go">{I["up"]}</span></a>' for i,l,v,h in contacts)
     return f'''<section class="fband" aria-labelledby="band-h"><div class="fband__panel">
-  <div class="fband__bg" aria-hidden="true"><img src="assets/img/hero-poster.jpg" alt="" loading="lazy"></div>
+  <div class="fband__bg" aria-hidden="true">{img("ext-front-2", alt="", sizes="100vw")}</div>
+  {house("house--band")}
   <div class="wrap fband__g">
-    <div>
+    <div class="fband__intro">
       {eyebrow("Start a project")}
       <h2 id="band-h" data-split>{E(h2)}</h2>
       <p class="lede rv" style="--d:1">{E(sub)}</p>
-      <div class="fband__info rv" style="--d:2">
-        <a href="tel:{BIZ["tel"]}">{I["phone"]}{BIZ["phone"]}</a>
-        <a href="mailto:{BIZ["email"]}">{I["mail"]}{BIZ["email"]}</a>
+      <div class="fband__info rv" style="--d:2">{cards}</div>
+    </div>
+    <div class="fband__form rv" style="--d:1">
+      <div class="fcard">
+        <div class="fcard__head"><h3>Request a consultation</h3><p>Fields marked * are required.</p></div>
+        {form("inquiry")}
       </div>
     </div>
-    <div class="fband__form rv" style="--d:1">{form("inquiry")}</div>
   </div>
 </div></section>'''
 
@@ -197,7 +228,7 @@ def footer(with_band=True, band_h2=None, band_sub=None):
     </div>
   </div>
 </footer>
-<script src="assets/js/site.js" defer></script>
+<script src="assets/js/site.js?v={ver("assets/js/site.js")}" defer></script>
 </body>
 </html>'''
 
@@ -213,16 +244,37 @@ def faq_block(faqs, h2="Frequently Asked Questions", lead=None, eyebrow_t="FAQs"
 
 def phero(h1, sub, image, crumbs, cta=True, eb=None):
     cr='<nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Home</a>'+"".join(f'<span aria-hidden="true">/</span>'+(f'<a href="{h}">{E(n)}</a>' if h else f'<span aria-current="page">{E(n)}</span>') for n,h in crumbs)+'</nav>'
-    return f'''<section class="phero"><div class="wrap">
-  {cr}<div class="phero__top"><h1 data-split>{E(h1)}</h1><div class="phero__side"><p class="rv" style="--d:2">{E(sub)}</p>{('<div class="rv" style="--d:3">'+btn()+'</div>') if cta else ""}</div></div>
-  <div class="phero__media wipe">{img(image, eager=True, sizes="100vw", para=True)}</div>
-</div></section>'''
+    kicker = eb or crumbs[0][0]
+    tags = [crumbs[0][0], "Campbell, CA"]
+    return f'''<section class="ihero" aria-label="Page introduction">
+  <div class="ihero__bg" aria-hidden="true">{img(image, alt="", eager=True, sizes="100vw")}</div>
+  <div class="wrap ihero__g">
+    <div class="ihero__copy">
+      {house("house--hero", stretch=True)}
+      {cr}
+      <span class="ihero__kicker">{E(kicker)}</span>
+      <h1 data-split>{E(h1)}</h1>
+      <p class="ihero__lead">{E(sub)}</p>
+      {('<div class="ihero__btn">'+btn()+'</div>') if cta else ""}
+    </div>
+    <div class="ihero__frame">
+      <div class="ihero__ph">{img(image, eager=True, sizes="(max-width:960px) 100vw, 46vw")}</div>
+      <div class="ihero__tags" aria-hidden="true">{"".join(f"<span>{E(t)}</span>" for t in tags)}</div>
+      <!--TOC-->
+    </div>
+  </div>
+</section>'''
+
+def strip(text="Talk with Roberto and Paula about your project.", image="int-kitchen", label="Start Your Project"):
+    """Slim dark call-to-action pill placed mid-page on inner pages."""
+    return f'''<section class="cstrip-sec" aria-label="Start a project"><div class="wrap"><div class="cstrip rv"><span class="cstrip__th">{img(image, alt="", sizes="90px")}</span><p class="cstrip__t">{E(text)}</p>{btn(label)}</div></div></section>'''
 
 def svc_cards(slugs=None, cols=4, numbered=True):
     out=[]
     for i,s_ in enumerate([SVC[x] for x in (slugs or [s["slug"] for s in SERVICES])]):
-        out.append(f'''<article class="card rv" style="--d:{i%4}"><a class="card__cover" href="{s_["slug"]}.html" aria-label="View Service: {E(s_["name"])}"></a><div class="card__img">{img(s_["img"], sizes="(max-width:640px) 100vw, (max-width:1240px) 50vw, 25vw")}{('<span class="card__n">%02d</span>' % (i+1)) if numbered else ""}<span class="card__go" aria-hidden="true">{I["up"]}</span><h3 class="card__t">{E(s_["name"])}</h3></div><div class="card__b"><p>{E(s_["short"])}</p><span class="link-ar" aria-hidden="true">View Service{I["ar"]}</span></div></article>''')
-    return f'<div class="cards{" cards--3" if cols==3 else ""}">{"".join(out)}</div>'
+        n = f'<span class="xcard__n">{i+1:02d}</span>' if numbered else ""
+        out.append(f'''<article class="xcard" style="--d:{i%4}"><a class="card__cover" href="{s_["slug"]}.html" aria-label="View Service: {E(s_["name"])}"></a><div class="xcard__img">{img(s_["img"], sizes="(max-width:640px) 100vw, (max-width:1240px) 50vw, 25vw")}</div>{n}<div class="xcard__panel"><span class="xcard__meta">Service</span><h3 class="xcard__t">{E(s_["name"])}</h3><p class="xcard__lead">{E(s_["short"])}</p><span class="xcard__go" aria-hidden="true">{I["up"]}</span></div></article>''')
+    return f'<div class="xcards{" xcards--3" if cols==3 else ""}">{"".join(out)}</div>'
 
 def svc_explorer():
     res=[s_ for s_ in SERVICES[:6]]; com=SERVICES[6:]
@@ -329,10 +381,31 @@ def sentence_headings(html_s):
         return m.group(1)+"".join(res)+m.group(3)
     return re.sub(r'(<h[12][^>]*>)(.*?)(</h[12]>)',fix,html_s,flags=re.S)
 
+def toc(s):
+    """'On this page' list for the inner hero, built from the section H2s inside <main>."""
+    if "<!--TOC-->" not in s: return s
+    main = s.split('<main id="main">',1)[1].split("</main>",1)[0]
+    items = [(i, re.sub(r"<[^>]+>","",t).strip()) for i,t in re.findall(r'<h2 id="([\w-]+)"[^>]*>(.*?)</h2>', main)][:5]
+    if len(items) < 2: return s.replace("<!--TOC-->","")
+    lis = "".join(f'<li><a href="#{i}"><span>{n+1:02d}</span>{t}</a></li>' for n,(i,t) in enumerate(items))
+    return s.replace("<!--TOC-->", f'<nav class="ihero__toc" aria-label="On this page"><span class="ihero__tochead">On this page</span><ol>{lis}</ol></nav>')
+
 def write(fn, s):
     s = sentence_headings(s)
     s = s.replace("—", ",").replace("–", "-")
-    with open(os.path.join(OUT, fn), "w", encoding="utf-8") as f: f.write(s)
+    s = toc(s)
+    # button labels: wrap text so it can roll on hover (the copy in data-t rises into place)
+    s = re.sub(r'(<(?:a|button|span) class="btn[^"]*"[^>]*>)([^<]+)(<span class="ar">)', lambda m: f'{m.group(1)}<span class="btn__t" data-t="{m.group(2).strip()}"><span>{m.group(2)}</span></span>{m.group(3)}', s)
+    # dark panels: darkened project photo with a red glow behind the content, plus the house-line watermark
+    DARK_BG=["drone-front","ext-angle","int-great-room","drone-oblique","ext-front","int-open-plan-2","ext-rear-1","int-kitchen-island"]
+    pick=sum(map(ord,fn))
+    cnt=[0]
+    def darkbg(m):
+        name=DARK_BG[(pick+cnt[0])%len(DARK_BG)]; cnt[0]+=1
+        return m.group(1)+f'<div class="dbg" aria-hidden="true">{img(name, alt="", sizes="100vw")}</div>'+house("house--dark")
+    s = re.sub(r'(<section class="sec sec--dark"[^>]*>)', darkbg, s)
+    if fn != "index.html": s = s.replace("<body>", '<body class="inner">', 1)
+    with open(os.path.join(OUT, fn), "w", encoding="utf-8", newline="\n") as f: f.write(s)
 
 # ================================================================ PAGES
 HOME_FAQ=[
@@ -358,7 +431,7 @@ def page_home():
   <div class="hero__media"><video data-auto autoplay muted loop playsinline preload="metadata" poster="assets/img/hero-poster.jpg" aria-hidden="true"><source src="assets/video/ref-hero.mp4" type="video/mp4"></video></div>
   <div class="wrap hero__in">
     <div class="hero__grid">
-      <h1 data-split>Built right. <em>From foundation to finish.</em></h1>
+      <div class="hero__head">{eyebrow("General Contractor in Campbell, CA")}<h1 data-split>Built right. <em>From foundation to finish.</em></h1></div>
       <div class="hero__side"><p class="hero__sub rv" style="--d:4">New homes, remodels, additions and ADUs across the Bay Area, led by Roberto and Paula with honest communication at every phase.</p><div class="rv" style="--d:5">{btn("Start Your Project", light=True)}</div></div>
     </div>
   </div>
@@ -374,11 +447,14 @@ def page_home():
     <div class="rv">{btn("Meet Roberto and Paula","about.html")}</div>
   </div>
   <div class="ab__media">
+    {house("house--ab", stretch=True)}
     <div class="img ab__a wipe">{img("ext-front-2", para=True, sizes="(max-width:960px) 100vw, 45vw")}</div>
     <div class="img ab__b wipe" style="transition-delay:.2s">{img("int-kitchen", sizes="(max-width:960px) 60vw, 22vw")}</div>
     <div class="ab__stat rv" style="--d:3"><b><span data-count="25">25</span>+</b><small>years of hands-on construction experience</small></div>
   </div>
 </div></section>
+
+{marquee()}
 
 <section class="sec sec--stone grid-bg" aria-labelledby="why-h"><div class="wrap">
   <div class="head-row"><div>{eyebrow("Why choose us")}<h2 id="why-h" data-split>Four commitments. <em>One standard on every job.</em></h2></div><p class="lede rv">We would rather tell you the truth and fix a problem than sell you an image.</p></div>
@@ -395,7 +471,7 @@ def page_home():
 <section class="sec" aria-labelledby="areas-h"><div class="wrap">
   <div class="head-row"><div>{eyebrow("Service areas")}<h2 id="areas-h" data-split>Your neighborhood. <em>Our home ground.</em></h2></div><p class="lede rv">{areas_intro}</p></div>
   <div class="mappanel rv">
-    {county_map()}
+    {area_map()}
     <div class="mapside">
       <div class="mapcard"><div class="img">{img("drone-oblique", sizes="(max-width:960px) 100vw, 30vw")}</div><span class="pill-badge pill-badge--glass">Office in Campbell</span><h3>Four Bay Area regions</h3><p>Santa Clara County, San Mateo County, Alameda County and San Francisco.</p>{btn("View Service Areas","service-areas.html", light=True)}</div>
       <div class="mapcard mapcard--list"><h3>Where is your project?</h3>{county_list()}</div>
@@ -403,7 +479,7 @@ def page_home():
   </div>
 </div></section>
 
-<section class="sec sec--tight" aria-labelledby="proj-h"><div class="wrap">
+<section class="sec sec--tight" aria-labelledby="proj-h"><div class="wrap wrap--wide">
   <div class="inset">
     <div class="inset__bg">{img("drone-rear", sizes="100vw", para=True)}</div>
     <div class="inset__top">{eyebrow("Featured projects")}<h2 id="proj-h" data-split>Real work. <em>Built to be seen up close.</em></h2></div>
@@ -466,6 +542,7 @@ def page_about():
   </div>
 </div></section>
 
+{strip("Talk with Roberto and Paula about your project.", "int-kitchen")}
 <section class="sec sec--dark" aria-labelledby="val-h"><div class="wrap">
   <div class="head-row"><div>{eyebrow("Values")}<h2 id="val-h" data-split>What We Stand For</h2></div><p class="lede rv">Values only matter when they show up in the work. Here is how ours do.</p></div>
   <ul class="why">{"".join(f'<li class="rv"><span class="n">{i+1:02d}</span><h3>{E(t)}</h3><p>{E(d)}</p></li>' for i,(t,d) in enumerate(VALUES))}</ul>
@@ -510,6 +587,7 @@ def page_services():
   {svc_cards()}
 </div></section>
 {steps_cards(SERVICE_STEPS, h2="How we work. <em>On every service.</em>", lede="The same clear sequence applies whether you are remodeling a bathroom or building a new home.")}
+{strip("Not sure which service fits? Tell us what you are planning.", "int-open-plan")}
 <section class="sec sec--dark" aria-labelledby="fit-h"><div class="wrap">
   <div class="head-row"><div>{eyebrow("Project fit")}<h2 id="fit-h" data-split>Who We Build For</h2></div><p class="lede rv">We do our best work with clients who value workmanship, honest communication and a clear process.</p></div>
   <ul class="why">{"".join(f'<li class="rv"><span class="n">{i+1:02d}</span><h3>{E(t)}</h3><p>{E(d)}</p></li>' for i,(t,d) in enumerate(PROJ_FIT))}</ul>
@@ -541,6 +619,7 @@ def page_service(sv):
   <div class="proc__stick">{eyebrow("Process")}<h2 id="pr-h" data-split>How Your Project Moves Forward</h2><p class="lede rv">You know what is happening, when it is happening and what we need from you.</p></div>
   <div class="steps"><div class="steps__rail"><div class="steps__fill"></div></div>{steps}</div>
 </div></section>
+{strip(f'Plan your {sv["name"].lower()} project with Roberto and Paula.', sv["img"])}
 <section class="sec sec--dark" aria-labelledby="wy-h"><div class="wrap g2">
   <div>{eyebrow("Why REF Builders")}<h2 id="wy-h" data-split>Why Clients Choose Us for {E(sv["name"])}</h2><ul class="checks rv">{"".join(f"<li>{E(w)}</li>" for w in sv["why"])}</ul></div>
   <div><div class="county rv" style="border-top:1px solid var(--line-light)"><h2 style="font-size:22px;margin:0 0 14px">Coverage</h2><p style="font-size:15px">We provide {E(sv["name"].lower())} across Santa Clara County, San Mateo County, Alameda County and San Francisco.</p><div class="chips">{cities}</div><div style="margin-top:22px">{link("All service areas","service-areas.html")}</div></div></div>
@@ -570,6 +649,7 @@ def page_projects():
   <h2 id="pg-h" class="rv" style="font-size:clamp(26px,2.4vw,34px)">Project Gallery</h2>
   <div class="g2" style="gap:24px;align-items:stretch">{cards}</div>
 </div></section>
+{strip("Planning a similar project? Talk with Roberto and Paula.", "drone-front")}
 <section class="sec" aria-labelledby="rs-h"><div class="wrap">
   <div class="head-row"><div>{eyebrow("Related services")}<h2 id="rs-h" data-split>The Services Behind This Work</h2></div></div>
   {svc_cards(["new-home-construction","kitchen-remodeling","bathroom-remodeling","full-home-remodeling"])}
@@ -598,6 +678,7 @@ def page_project(p):
   <div>{eyebrow("Challenge and approach")}<h2 id="ca-h" data-split>Challenge and Approach</h2><p class="lede rv">{E(p["challenge"])}</p></div>
   <div class="img ar-43 wipe">{img(p["gallery"][1])}</div>
 </div></section>
+{strip("Want results like these? Tell us about your project.", p["img"])}
 <section class="sec sec--dark" aria-labelledby="dr-h"><div class="wrap g2 g2--top">
   <div>{eyebrow("Delivery")}<h2 id="dr-h" data-split>Delivery and Results</h2></div><p class="lede rv">{E(p["result"])}</p>
 </div></section>
@@ -649,6 +730,7 @@ def page_areas():
   <div class="head-row"><div>{eyebrow("City pages")}<h2 id="cg-h" data-split>Find Your Community</h2></div><p class="lede rv">Each community page covers the projects we build there and answers local questions.</p></div>
   <div style="display:grid;gap:0;border-top:1px solid var(--line)">{groups}</div>
 </div></section>
+{strip("Not sure if we cover your area? Send us your project city.", "drone-oblique")}
 <section class="sec sec--stone" aria-labelledby="sa-h"><div class="wrap">
   <div class="head-row"><div>{eyebrow("Services available")}<h2 id="sa-h" data-split>Services Across Our Coverage Area</h2></div><div class="rv">{link("All services","services.html")}</div></div>
   {svc_cards()}
@@ -680,6 +762,7 @@ def page_city(c):
   <div class="img ar-45 wipe">{img(c["img"] if c["img"]!="ext-patio" else "ext-yard", para=True)}</div>
   <div>{eyebrow("Approach")}<h2 id="ap-h" data-split>How We Work in {E(c["name"])}</h2><p class="lede rv">{E(c["approach"])}</p><ul class="checks rv"><li>Phase dates shared before each stage</li><li>Selection deadlines tied to rough work</li><li>Changes documented in writing</li><li>Direct access to Roberto and Paula</li></ul></div>
 </div></section>
+{strip(f'Planning a project in {c["name"]}? Talk with Roberto and Paula.', c["img"])}
 <section class="sec sec--dark" aria-labelledby="lp-h"><div class="wrap g2">
   <div>{eyebrow("Local coverage")}<h2 id="lp-h" data-split>Close to {E(c["name"])}</h2><p class="lede rv">{E(c["name"])} is part of our {E(c["county"])} coverage, served from our office at {BIZ["addr1"]} in Campbell. We do not have an office in {E(c["name"])}; we travel to each project.</p><div class="rv" style="margin-top:28px">{link("See our projects","projects.html")}</div></div>
   {county_map()}
@@ -859,7 +942,7 @@ def legal_page(kind):
 <p>Contact: <a href="mailto:{BIZ["email"]}">{BIZ["email"]}</a> | <a href="tel:{BIZ["tel"]}">{BIZ["phone"]}</a></p>'''
         desc="Terms and conditions for SMS and electronic communications from REF Builders, including opt-out, frequency and consent details."
     s=head(f"{h1} | REF Builders", desc, fn.replace(".html",""))
-    s+=header("")
+    s+=header("", inner=True)
     s+=f'''<main id="main"><section class="phero phero--plain"><div class="wrap"><nav class="crumbs" aria-label="Breadcrumb"><a href="index.html">Home</a><span aria-hidden="true">/</span><span aria-current="page">{h1}</span></nav><div class="phero__top"><h1 data-split>{h1}</h1></div></div></section>
 <section class="sec"><div class="wrap"><div class="prose legal">{body}</div></div></section></main>'''
     s+=footer(True,"Questions? Contact REF Builders")

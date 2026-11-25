@@ -63,6 +63,25 @@
     el.querySelectorAll(".w").forEach(function(x){x.setAttribute("aria-hidden","true")});
   });
 
+  /* gradient heading accents: give every split word its slice of one gradient that runs
+     across the whole phrase in reading order, even when the phrase wraps to a new line */
+  function gradWords(){
+    d.querySelectorAll("h1 em,h2 em").forEach(function(em){
+      var ws=[].slice.call(em.querySelectorAll(".w")); if(!ws.length) return;
+      var widths=ws.map(function(x){return x.getBoundingClientRect().width}), total=0, at=0;
+      widths.forEach(function(v){total+=v});
+      ws.forEach(function(x,i){
+        var s=x.firstElementChild; if(!s) return;
+        s.style.backgroundSize=total+"px 100%";
+        s.style.backgroundPosition=(-at)+"px 0";
+        at+=widths[i];
+      });
+    });
+  }
+  gradWords();
+  if(d.fonts&&d.fonts.ready) d.fonts.ready.then(gradWords);
+  var gwT; w.addEventListener("resize",function(){ clearTimeout(gwT); gwT=setTimeout(gradWords,120); });
+
   /* image loading: fade in when decoded, mark container ready */
   d.querySelectorAll(".img img,.card__img img,.pcard__img img,.phero__media img").forEach(function(im){
     var box=im.parentElement;
@@ -80,13 +99,20 @@
   }
 
   /* reveal on scroll */
-  var targets=d.querySelectorAll(".rv,.split,.wipe,.roof-draw,[data-io]");
+  /* step cards start fully masked (clip-path), which browsers count as 0% visible,
+     so they get their own trigger that fires as soon as the card's box reaches the screen */
+  var masked=d.querySelectorAll(".scard.rv,.xcard");
+  var targets=[].filter.call(d.querySelectorAll(".rv,.split,.wipe,.roof-draw,[data-io]"),function(t){return !t.matches(".scard.rv")});
   if("IntersectionObserver" in w && !reduce){
     var io=new IntersectionObserver(function(es){
       es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target);} });
     },{rootMargin:"0px 0px -8% 0px",threshold:.12});
     targets.forEach(function(t){io.observe(t)});
-  } else { targets.forEach(function(t){t.classList.add("in")}); }
+    var mio=new IntersectionObserver(function(es){
+      es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add("in"); mio.unobserve(e.target);} });
+    },{rootMargin:"0px 0px -12% 0px",threshold:0});
+    masked.forEach(function(t){mio.observe(t)});
+  } else { targets.forEach(function(t){t.classList.add("in")}); masked.forEach(function(t){t.classList.add("in")}); }
 
   /* gentle parallax (translate only, never scale) */
   var par=[].slice.call(d.querySelectorAll("[data-para]"));
@@ -184,4 +210,106 @@
 
   /* year */
   d.querySelectorAll("[data-year]").forEach(function(el){el.textContent=new Date().getFullYear()});
+
+  /* area map: tap a pin to zoom in, labels keep a steady on-screen size */
+  d.querySelectorAll("[data-amap]").forEach(function(box){
+    var svg=box.querySelector("svg"), FULL=box.dataset.amap.split(" ").map(Number), cur=FULL.slice(), raf=0, active=null;
+    var nameEl=box.querySelector("[data-am-name]"), metaEl=box.querySelector("[data-am-meta]"),
+        go=box.querySelector("[data-am-go]"), reset=box.querySelector("[data-am-reset]"), bar=box.querySelector("[data-am-scale]");
+    function fit(vb){ /* viewBox with the box's aspect so the target stays centred (svg uses slice) */
+      var w=box.clientWidth||1, h=box.clientHeight||1, a=w/h, cx=vb[0]+vb[2]/2, cy=vb[1]+vb[3]/2, vw=vb[2], vh=vb[3];
+      if(vw/vh>a) vh=vw/a; else vw=vh*a;
+      return [cx-vw/2, cy-vh/2, vw, vh];
+    }
+    function apply(vb){
+      cur=vb; svg.setAttribute("viewBox",vb.map(function(n){return n.toFixed(1)}).join(" "));
+      var s=box.clientWidth/vb[2]; /* screen px per map unit */
+      var target=box.clientWidth<560?.72:.95;
+      svg.style.setProperty("--ls",(target/s).toFixed(3));
+      if(bar) bar.style.width=Math.round(75*s)+"px"; /* 5 mi = 75 units */
+    }
+    function animate(to){
+      cancelAnimationFrame(raf);
+      if(reduce){apply(to);return;}
+      var from=cur.slice(), t0=performance.now(), dur=850;
+      (function step(t){
+        var k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3);
+        apply(from.map(function(v,i){return v+(to[i]-v)*e}));
+        if(k<1) raf=requestAnimationFrame(step);
+      })(t0);
+    }
+    function full(){
+      if(active) active.classList.remove("on"); active=null;
+      box.classList.remove("zoomed");
+      nameEl.textContent="Full service area"; metaEl.textContent="Office in Campbell, CA";
+      go.hidden=true; reset.hidden=true;
+      animate(fit(FULL));
+    }
+    function zoom(pin){
+      if(active===pin){full();return;}
+      if(active) active.classList.remove("on");
+      active=pin; pin.classList.add("on"); box.classList.add("zoomed");
+      var x=+pin.dataset.x, y=+pin.dataset.y;
+      nameEl.textContent=pin.dataset.name; metaEl.textContent=pin.dataset.meta;
+      if(pin.dataset.href){go.hidden=false; go.href=pin.dataset.href; go.textContent=pin.dataset.name+" page";} else go.hidden=true;
+      reset.hidden=false;
+      animate(fit([x-150,y-150,300,300]));
+    }
+    box.querySelectorAll(".am-pin").forEach(function(pin){
+      pin.addEventListener("click",function(){zoom(pin)});
+      pin.addEventListener("keydown",function(e){ if(e.key==="Enter"||e.key===" "){e.preventDefault();zoom(pin);} });
+    });
+    reset.addEventListener("click",full);
+    box.addEventListener("keydown",function(e){ if(e.key==="Escape"&&active){full();} });
+    var rT; w.addEventListener("resize",function(){ clearTimeout(rT); rT=setTimeout(function(){
+      if(active) apply(fit([+active.dataset.x-150,+active.dataset.y-150,300,300])); else apply(fit(FULL));
+    },120); });
+    apply(fit(FULL));
+  });
+
+  /* ===== inner pages: scroll-linked motion (reading bar, word fill, photo parallax, closing band) ===== */
+  if(d.body.classList.contains("inner")){
+    var bar=d.createElement("div"); bar.className="readbar"; bar.setAttribute("aria-hidden","true"); d.body.appendChild(bar);
+    d.querySelectorAll(".acc").forEach(function(a){
+      [].forEach.call(a.querySelectorAll(".acc__i"),function(it,i){ it.style.setProperty("--i",Math.min(i,10)); });
+    });
+    var clamp=function(v){return v<0?0:v>1?1:v;};
+    var fills=[], pars=[], band=null, bandImg=null;
+    if(!reduce){
+      fills=[].map.call(d.querySelectorAll("main h2[data-split]"),function(h){
+        h.classList.add("fillh");
+        return {el:h, ws:[].slice.call(h.querySelectorAll(".w>span"))};
+      });
+      pars=[].filter.call(d.querySelectorAll("main .img img, main .xcard__img img, .cstrip__th img, main .dbg img"),function(im){ return !im.hasAttribute("data-para"); });
+      band=d.querySelector(".fband__panel"); bandImg=band&&band.querySelector(".fband__bg img");
+    }
+    var itk=false;
+    function iframe(){
+      itk=false;
+      var vh=w.innerHeight, max=d.documentElement.scrollHeight-vh;
+      bar.style.transform="scaleX("+(max>0?(w.scrollY/max).toFixed(4):0)+")";
+      fills.forEach(function(f){ /* words fill from faint to solid between 88% and 50% of the viewport */
+        var r=f.el.getBoundingClientRect(); if(r.bottom<-80||r.top>vh+80) return;
+        var p=clamp((vh*.88-r.top)/(vh*.38)), n=f.ws.length||1;
+        f.ws.forEach(function(s,i){ var a=i/n*.7, wp=clamp((p-a)/.3); s.style.opacity=(.16+.84*wp).toFixed(3); });
+      });
+      pars.forEach(function(im){ /* slow drift: -6% to +6% while the photo crosses the screen */
+        var r=im.parentElement.getBoundingClientRect(); if(r.bottom<0||r.top>vh) return;
+        var p=clamp((vh-r.top)/(vh+r.height));
+        im.style.transform="translate3d(0,"+((p-.5)*12).toFixed(2)+"%,0) scale(1.12)";
+      });
+      if(band){ /* closing band opens from an inset rounded panel to full size, photo zooms out */
+        var br=band.getBoundingClientRect();
+        if(br.top<vh+40&&br.bottom>-40){
+          var q=clamp((vh*.96-br.top)/(vh*.34));
+          band.style.clipPath=q>=1?"":"inset("+(5*(1-q)).toFixed(2)+"% "+(3*(1-q)).toFixed(2)+"% round "+(56-16*q).toFixed(1)+"px)";
+          if(bandImg){ var z=clamp((vh-br.top)/(vh+br.height)); bandImg.style.transform="scale("+(1.2-.16*z).toFixed(3)+")"; }
+        }
+      }
+    }
+    var ireq=function(){ if(!itk){itk=true;requestAnimationFrame(iframe);} };
+    w.addEventListener("scroll",ireq,{passive:true});
+    w.addEventListener("resize",ireq);
+    iframe();
+  }
 })();
